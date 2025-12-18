@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Ad Creative Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f5f5f7;
+            color: #111827;
+        }
+        .container {
+            max-width: 960px;
+            margin: 40px auto;
+            background: #ffffff;
+            padding: 24px 28px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+        }
+        h1 {
+            margin-top: 0;
+            font-size: 24px;
+        }
+        textarea {
+            width: 100%;
+            min-height: 120px;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            resize: vertical;
+            font-family: inherit;
+            font-size: 14px;
+        }
+        button {
+            background: #2563eb;
+            color: #ffffff;
+            border: none;
+            border-radius: 999px;
+            padding: 10px 18px;
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 12px;
+        }
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        .section-title {
+            margin-top: 28px;
+            font-size: 18px;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 6px;
+        }
+        .ad-card {
+            border-radius: 10px;
+            border: 1px solid #e5e7eb;
+            padding: 14px 16px;
+            margin-top: 10px;
+            background: #f9fafb;
+        }
+        .suggestion-card.selected {
+            border-color: #10b981;
+            background: #ecfdf5;
+        }
+        .ad-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            margin-top: 10px;
+        }
+        .ad-headline {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .meta {
+            font-size: 12px;
+            color: #6b7280;
+            margin-bottom: 6px;
+        }
+        .label {
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .error {
+            color: #b91c1c;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+        .suggestions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+            margin-top: 10px;
+        }
+        .suggestion-card.selected {
+            border-color: #16a34a;
+            background: #ecfdf5;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>AI Ad Creative Generator</h1>
+    <p>Enter a short product or campaign description and generate multiple ad options with images.</p>
+
+    <label for="prompt" class="label">Campaign description</label>
+    <textarea id="prompt" placeholder="e.g., A new eco-friendly water bottle targeting college students..."></textarea>
+    <button id="generateBtn">Generate Ad</button>
+    <div id="error" class="error"></div>
+
+    <div>
+        <h2 class="section-title">Suggestions (3 variations)</h2>
+        <p style="font-size:13px;color:#6b7280;margin-top:4px;">
+            Each click generates 3 different versions. Pick the one you like; we’ll automatically generate its image.
+        </p>
+        <div id="suggestions" class="suggestions-grid"></div>
+    </div>
+
+    <div>
+        <h2 class="section-title">Ad image</h2>
+        <div id="imageError" class="error"></div>
+        <div id="imageContainer" style="margin-top:8px;"></div>
+    </div>
+
+    <div>
+        <h2 class="section-title">Search & History</h2>
+        <div style="margin-bottom:12px;">
+            <input type="text" id="searchInput" placeholder="Search ads by prompt, headline, CTA..." style="width:70%;padding:8px;border:1px solid #d1d5db;border-radius:4px;">
+            <button id="searchBtn" style="margin-left:8px;padding:8px 16px;">Search</button>
+            <button id="clearSearchBtn" style="margin-left:4px;padding:8px 16px;background:#6b7280;">Clear</button>
+        </div>
+        <div id="history"></div>
+    </div>
+</div>
+
+<script>
+    const apiBase = '/api/ad';
+    let currentAd = null;
+    let currentSuggestions = [];
+    let isSearchMode = false;
+
+    async function fetchHistory(searchTerm = null) {
+        try {
+            let url = apiBase + '/history';
+            if (searchTerm && searchTerm.trim()) {
+                url = apiBase + '/search?q=' + encodeURIComponent(searchTerm.trim());
+                isSearchMode = true;
+            } else {
+                isSearchMode = false;
+            }
+
+            const res = await fetch(url);
+            if (!res.ok) {
+                throw new Error('Failed to load ' + (isSearchMode ? 'search results' : 'history'));
+            }
+            const data = await res.json();
+            renderHistory(data);
+        } catch (e) {
+            console.error(e);
+            document.getElementById('history').innerHTML = '<p style="color:#b91c1c;">Error loading data: ' + e.message + '</p>';
+        }
+    }
+
+    function renderAd(ad, container) {
+        if (!ad) {
+            container.innerHTML = '<p>No ad generated yet.</p>';
+            return;
+        }
+        const createdAt = ad.createdAt ? new Date(ad.createdAt).toLocaleString() : '';
+        const imageHtml = ad.imageUrl
+            ? `<div style="margin-top:10px;"><img src="${ad.imageUrl}" alt="Ad image" style="max-width:100%;border-radius:8px;border:1px solid #e5e7eb;" /></div>`
+            : '';
+        container.innerHTML = `
+            <div class="ad-card">
+                <div class="meta">${createdAt}</div>
+                <div class="ad-headline">${ad.headline}</div>
+                <div><span class="label">CTA:</span> ${ad.cta}</div>
+                <div><span class="label">Survey Question:</span> ${ad.surveyQuestion}</div>
+                <div style="margin-top:8px;">
+                    <span class="label">Prompt:</span>
+                    <span>${ad.prompt}</span>
+                </div>
+                ${imageHtml}
+            </div>
+        `;
+    }
+
+    function renderHistory(list) {
+        const historyEl = document.getElementById('history');
+        historyEl.innerHTML = '';
+        if (!list || list.length === 0) {
+            const message = isSearchMode ? 'No ads found matching your search.' : 'No ads generated yet.';
+            historyEl.innerHTML = '<p>' + message + '</p>';
+            return;
+        }
+
+        const headerText = isSearchMode ? 'Search Results (' + list.length + ' found)' : 'Last 5 Generated Ads';
+        const header = document.createElement('h3');
+        header.textContent = headerText;
+        header.style.fontSize = '16px';
+        header.style.marginBottom = '8px';
+        header.style.color = '#374151';
+        historyEl.appendChild(header);
+
+        list.forEach(ad => {
+            const div = document.createElement('div');
+            renderAd(ad, div);
+            historyEl.appendChild(div.firstElementChild);
+        });
+    }
+
+    function renderSuggestions() {
+        const container = document.getElementById('suggestions');
+        container.innerHTML = '';
+        if (!currentSuggestions || currentSuggestions.length === 0) {
+            container.innerHTML = '<p style="font-size:13px;color:#6b7280;">No suggestions yet. Click "Generate Ad" to get 3 options.</p>';
+            return;
+        }
+        currentSuggestions.forEach((ad, index) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'ad-card suggestion-card';
+            wrapper.innerHTML = `
+                <div class="ad-headline">${ad.headline}</div>
+                <div style="font-size:13px;margin-bottom:4px;"><span class="label">CTA:</span> ${ad.cta}</div>
+                <div style="font-size:13px;margin-bottom:4px;"><span class="label">Survey:</span> ${ad.surveyQuestion}</div>
+                <div style="margin-top:4px;font-size:12px;color:#9ca3af;">
+                    <span class="label">Prompt:</span> ${ad.prompt}
+                </div>
+                <button data-index="${index}" style="margin-top:10px;">Use this ad</button>
+            `;
+            const btn = wrapper.querySelector('button');
+            btn.addEventListener('click', () => selectSuggestion(index));
+            container.appendChild(wrapper);
+        });
+    }
+
+    async function generateAd() {
+        const promptEl = document.getElementById('prompt');
+        const errorEl = document.getElementById('error');
+        const btn = document.getElementById('generateBtn');
+        const imageErrorEl = document.getElementById('imageError');
+        const imageContainerEl = document.getElementById('imageContainer');
+
+        const prompt = promptEl.value.trim();
+        errorEl.textContent = '';
+
+        if (!prompt) {
+            errorEl.textContent = 'Please enter a campaign description.';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Generating suggestions...';
+        imageErrorEl.textContent = '';
+        imageContainerEl.innerHTML = '';
+        currentAd = null;
+        currentSuggestions = [];
+        renderSuggestions();
+
+        try {
+            // Request 3 different ads by calling the backend multiple times
+            const count = 3;
+            for (let i = 0; i < count; i++) {
+                const res = await fetch(apiBase + '/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ prompt })
+                });
+
+                if (!res.ok) {
+                    let msg = 'Failed to generate ad.';
+                    try {
+                        const err = await res.json();
+                        if (err && err.message) {
+                            msg = err.message;
+                        }
+                    } catch (_) {}
+                    throw new Error(msg);
+                }
+
+                const ad = await res.json();
+                // Don't save suggestions, just display them
+                currentSuggestions.push(ad);
+            }
+            renderSuggestions();
+            await fetchHistory();
+        } catch (e) {
+            console.error(e);
+            errorEl.textContent = e.message || 'Unexpected error occurred.';
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Generate Ad';
+        }
+    }
+
+    async function selectSuggestion(index) {
+        const imageErrorEl = document.getElementById('imageError');
+        const imageContainerEl = document.getElementById('imageContainer');
+
+        const ad = currentSuggestions[index];
+        if (!ad) {
+            return;
+        }
+
+        try {
+            // Save the selected ad first
+            const saveRes = await fetch(apiBase + '/save', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(ad)
+            });
+
+            if (!saveRes.ok) {
+                throw new Error('Failed to save selected ad');
+            }
+
+            const savedAd = await saveRes.json();
+            currentAd = savedAd;
+
+            // highlight selected suggestion card
+            document.querySelectorAll('.suggestion-card').forEach((card, idx) => {
+                if (idx === index) {
+                    card.classList.add('selected');
+                } else {
+                    card.classList.remove('selected');
+                }
+            });
+
+            imageErrorEl.textContent = '';
+            imageContainerEl.innerHTML = '';
+
+            // Automatically generate image for the saved ad
+            generateImageForCurrentAd();
+
+            // Refresh history to show the newly saved ad
+            await fetchHistory();
+
+        } catch (e) {
+            console.error('Error saving ad:', e);
+            imageErrorEl.textContent = 'Failed to save ad: ' + e.message;
+        }
+    }
+
+    async function generateImageForCurrentAd() {
+        const imageErrorEl = document.getElementById('imageError');
+        const imageContainerEl = document.getElementById('imageContainer');
+
+        imageErrorEl.textContent = '';
+
+        if (!currentAd) {
+            imageErrorEl.textContent = 'Generate an ad first.';
+            return;
+        }
+
+        const prompt = `${currentAd.headline}. ${currentAd.prompt}`;
+
+        imageErrorEl.textContent = 'Generating image...';
+        imageContainerEl.innerHTML = '';
+
+        try {
+            const res = await fetch(apiBase + '/image', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ adId: currentAd.id, prompt })
+            });
+
+            if (!res.ok) {
+                let msg = 'Failed to generate image.';
+                try {
+                    const err = await res.json();
+                    if (err && err.message) {
+                        msg = err.message;
+                    }
+                } catch (_) {}
+                throw new Error(msg);
+            }
+
+            const data = await res.json();
+            if (!data.imageUrl) {
+                throw new Error('No image URL returned.');
+            }
+            currentAd.imageUrl = data.imageUrl;
+            imageContainerEl.innerHTML = `<img src="${data.imageUrl}" alt="Ad image" style="max-width:100%;border-radius:8px;border:1px solid #e5e7eb;" />`;
+        } catch (e) {
+            console.error(e);
+            imageErrorEl.textContent = e.message || 'Unexpected error occurred while generating image.';
+        } finally {
+            if (!imageErrorEl.textContent.includes('error')) {
+                imageErrorEl.textContent = '';
+            }
+        }
+    }
+
+    // Search functionality
+    document.getElementById('searchBtn').addEventListener('click', () => {
+        const searchTerm = document.getElementById('searchInput').value;
+        fetchHistory(searchTerm);
+    });
+
+    document.getElementById('clearSearchBtn').addEventListener('click', () => {
+        document.getElementById('searchInput').value = '';
+        fetchHistory();
+    });
+
+    // Allow Enter key in search input
+    document.getElementById('searchInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const searchTerm = document.getElementById('searchInput').value;
+            fetchHistory(searchTerm);
+        }
+    });
+
+    document.getElementById('generateBtn').addEventListener('click', generateAd);
+    fetchHistory();
+</script>
+</body>
+</html>
+
+
